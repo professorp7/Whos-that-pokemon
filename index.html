@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Who’s That? — Silhouette Quiz</title>
+<style>
+  :root{
+    --bg:#0b1020; --panel:#111832; --muted:#8ea0b6; --text:#e6eef6; --line:#233055;
+    --accent:#7dd3fc; --accent-2:#a78bfa; --good:#22c55e; --bad:#ef4444; --glass:rgba(255,255,255,.04);
+    --radius:16px; --gap:14px; --shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none !important;}
+  body{margin:0;font-family:Inter, ui-sans-serif, system-ui, Arial, sans-serif;background:radial-gradient(1200px 600px at 15% -10%,#152347,#0b1020);color:var(--text)}
+  .wrap{max-width:1200px;margin:0 auto;padding:20px}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .brand{display:flex;gap:10px;align-items:center}
+  .logo{height:34px;width:34px;border-radius:10px;background:linear-gradient(45deg,var(--accent),var(--accent-2));box-shadow:var(--shadow)}
+  h1{font-size:20px;margin:0;letter-spacing:.3px}
+
+  /* Tabs */
+  .tabs{display:flex;gap:10px;background:var(--panel);padding:8px;border-radius:999px;border:1px solid var(--line)}
+  .tab{border:none;background:transparent;color:var(--muted);padding:10px 16px;border-radius:999px;cursor:pointer;font-weight:600}
+  .tab.active{background:linear-gradient(90deg, rgba(125,211,252,.15), rgba(167,139,250,.15));color:var(--text)}
+
+  /* Layout */
+  .grid{display:grid;grid-template-columns:1fr 380px;gap:var(--gap)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
+  .card h2{font-size:16px;margin:0 0 10px 0;color:#d9e6ff;letter-spacing:.3px}
+  .muted{color:var(--muted)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .sep{height:1px;background:var(--line);margin:12px 0}
+
+  /* Play Area */
+  .stage{display:grid;place-items:center;background:linear-gradient(180deg,#0f162f, #0e1427);border:1px dashed var(--line);border-radius:14px;height:420px;position:relative;overflow:hidden}
+  canvas{max-width:100%;max-height:100%}
+  .answer{font-size:18px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--glass);color:var(--text);min-width:240px}
+  .btn{border:none;background:linear-gradient(180deg,#15234a,#0f1840);color:var(--text);padding:10px 14px;border-radius:12px;cursor:pointer;border:1px solid var(--line);font-weight:700}
+  .btn:active{transform:translateY(1px)}
+  .btn.ghost{background:transparent;color:var(--muted)}
+  .btn.acc{background:linear-gradient(90deg,var(--accent),var(--accent-2));color:#06121e;border:none}
+  .pill{padding:6px 10px;border-radius:999px;background:var(--glass);border:1px solid var(--line);font-size:12px}
+
+  .kvs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .kvs div{background:rgba(255,255,255,.03);border:1px solid var(--line);padding:10px;border-radius:12px}
+
+  /* Lists */
+  .list{display:flex;flex-direction:column;gap:10px;max-height:320px;overflow:auto}
+  .item{display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,.03);padding:10px;border:1px solid var(--line);border-radius:12px}
+  .item .name{font-weight:700}
+  .item .mini{font-size:12px;color:var(--muted)}
+  .danger{color:#ffb4b4}
+
+  /* Uploader */
+  .uploader{display:grid;gap:10px}
+  .uploader input[type="text"], .uploader input[type="file"]{
+    padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--glass);color:var(--text)
+  }
+  .uploader label{font-size:12px;color:var(--muted)}
+  .thumbs{display:grid;grid-template-columns:repeat(auto-fill, minmax(90px,1fr));gap:8px;margin-top:8px}
+  .thumbs img{width:100%;height:70px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+
+  @media (max-width:1020px){ .grid{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand">
+        <div class="logo"></div>
+        <h1>Who’s That? — Silhouette Quiz</h1>
+      </div>
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="play" aria-selected="true">Play</button>
+        <button class="tab" data-tab="create" aria-selected="false">Create Pack</button>
+        <button class="tab" data-tab="packs" aria-selected="false">Manage Packs</button>
+      </nav>
+    </header>
+
+    <!-- PLAY TAB -->
+    <section class="grid tabpanel" id="tab-play" role="tabpanel">
+      <div class="card">
+        <h2>Round</h2>
+        <div class="stage" id="stage">
+          <canvas id="canvas" width="800" height="420" aria-label="quiz canvas"></canvas>
+        </div>
+        <div class="sep"></div>
+        <div class="row">
+          <input class="answer" id="guess" autocomplete="off" placeholder="Type your guess…" />
+          <button class="btn acc" id="submitGuess">Guess</button>
+          <button class="btn" id="reveal">Reveal</button>
+          <button class="btn ghost" id="next">Next</button>
+          <span class="pill" id="status">Silhouette mode</span>
+        </div>
+      </div>
+      <aside class="card">
+        <h2>Pack & Options</h2>
+        <div class="uploader">
+          <label>Choose a saved pack</label>
+          <select id="packSelect"></select>
+          <div class="kvs">
+            <div><strong>Items</strong><div class="mini" id="count">0</div></div>
+            <div><strong>Correct</strong><div class="mini" id="score">0</div></div>
+          </div>
+          <div class="sep"></div>
+          <label>Display</label>
+          <div class="row">
+            <button class="btn" id="toggleSilhouette">Toggle silhouette</button>
+            <button class="btn ghost" id="full">Fullscreen</button>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- CREATE TAB -->
+    <section class="grid tabpanel" id="tab-create" role="tabpanel" hidden>
+      <div class="card">
+        <h2>Build a Pack</h2>
+        <div class="uploader">
+          <label>Pack name</label>
+          <input id="packName" type="text" placeholder="e.g., Gen 1 Starters" />
+          <div class="row">
+            <input id="entryName" type="text" placeholder="Answer / character name" />
+            <input id="entryFile" type="file" accept="image/*" />
+            <button class="btn acc" id="addEntry">Add</button>
+          </div>
+          <div class="thumbs" id="thumbs"></div>
+          <div class="sep"></div>
+          <div class="row">
+            <button class="btn" id="savePack">Save Pack</button>
+            <button class="btn ghost" id="clearEntries">Clear entries</button>
+          </div>
+        </div>
+      </div>
+      <aside class="card">
+        <h2>Tips</h2>
+        <p class="muted">Upload images from your device for the cleanest silhouettes (avoids cross-origin issues). Each entry stores the image as a data URL inside the pack.</p>
+        <p class="muted">You can export packs and share JSON files. Friends can import them in <em>Manage Packs</em>.</p>
+      </aside>
+    </section>
+
+    <!-- PACKS TAB -->
+    <section class="grid tabpanel" id="tab-packs" role="tabpanel" hidden>
+      <div class="card">
+        <h2>Your Packs</h2>
+        <div class="list" id="packList"></div>
+      </div>
+      <aside class="card">
+        <h2>Import / Export</h2>
+        <div class="row">
+          <button class="btn" id="exportAll">Export all</button>
+          <input id="importFile" type="file" accept="application/json" />
+          <button class="btn acc" id="importBtn">Import</button>
+        </div>
+        <p class="muted">Export produces a single JSON with all your packs. Import will merge by name (overwriting existing names).</p>
+      </aside>
+    </section>
+  </div>
+
+<script>
+(function(){
+  const $ = sel => document.querySelector(sel);
+  const $$ = sel => Array.from(document.querySelectorAll(sel));
+  const CANVAS = $('#canvas');
+  const CTX = CANVAS.getContext('2d');
+  const STAGE = $('#stage');
+
+  // ---------------- Storage (robust) ----------------
+  const storeKey = 'wtp_packs_v1';
+  const loadPacks = () => {
+    try{
+      const raw = localStorage.getItem(storeKey);
+      if(!raw) return {};
+      const parsed = JSON.parse(raw);
+      return (parsed && typeof parsed === 'object') ? parsed : {};
+    }catch(e){
+      console.warn('Bad localStorage data:', e);
+      localStorage.removeItem(storeKey);
+      return {};
+    }
+  };
+  const savePacks = (packs) => {
+    try{ localStorage.setItem(storeKey, JSON.stringify(packs||{})); }
+    catch(e){ console.warn('Failed to save packs', e); }
+  };
+
+  // --- Starter utilities ---
+  function generateSampleImage(){
+    const c = document.createElement('canvas'); c.width=480; c.height=360; const x=c.getContext('2d');
+    x.clearRect(0,0,c.width,c.height);
+    x.fillStyle = 'white';
+    x.beginPath(); x.arc(240,150,90,0,Math.PI*2); x.fill();
+    x.fillRect(220,240,40,70);
+    return c.toDataURL('image/png'); // transparent bg + white shape
+  }
+  function ensureStarterPack(){
+    const existing = loadPacks();
+    if(Object.keys(existing).length) return;
+    const img = generateSampleImage();
+    const demo = { 'Sample Pack': { items: [ { name: 'Sample', img } ] } };
+    savePacks(demo);
+  }
+
+  // ---------------- Tabs (accessible + resilient) ----------------
+  function activateTab(id){
+    $$('.tab').forEach(b=>{
+      const on = b.dataset.tab === id;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    $$('.tabpanel').forEach(p=>{ p.hidden = true; });
+    const panel = document.getElementById('tab-'+id);
+    if(panel) panel.hidden = false;
+  }
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.tab');
+    if(!btn) return;
+    e.preventDefault();
+    activateTab(btn.dataset.tab);
+  });
+
+  // ---------------- State ----------------
+  let packs = {};
+  let currentPack = null;
+  let currentIndex = -1;
+  let showSilhouette = true;
+  let score = 0;
+  let revealed = false;
+  let locked = false;
+  let workingEntries = []; // for create tab
+
+  function refreshPackSelect(){
+    const sel = $('#packSelect');
+    const names = Object.keys(packs);
+    sel.innerHTML = names.length
+      ? names.map(n=>`<option value="${n}">${n}</option>`).join('')
+      : '<option disabled>No packs saved</option>';
+    if(names.length){
+      if(!currentPack || !packs[currentPack]) currentPack = names[0];
+      sel.value = currentPack;
+    } else {
+      currentPack = null;
+    }
+    $('#count').textContent = currentPack ? packs[currentPack].items.length : 0;
+  }
+
+  function refreshPackList(){
+    const list = $('#packList');
+    const names = Object.keys(packs);
+    if(!names.length){
+      list.innerHTML = '<div class="muted">No packs yet. Create one in the <strong>Create Pack</strong> tab.</div>';
+      return;
+    }
+    list.innerHTML = names.map(name=>{
+      const c = packs[name].items.length;
+      return `<div class="item">
+        <div>
+          <div class="name">${name}</div>
+          <div class="mini">${c} item${c!==1?'s':''}</div>
+        </div>
+        <div class="row">
+          <button class="btn" data-action="play" data-name="${name}">Play</button>
+          <button class="btn" data-action="edit" data-name="${name}">Edit</button>
+          <button class="btn ghost" data-action="export" data-name="${name}">Export</button>
+          <button class="btn danger" data-action="delete" data-name="${name}">Delete</button>
+        </div>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('button').forEach(b=>b.addEventListener('click', packRowAction));
+  }
+
+  function packRowAction(e){
+    const name = e.target.dataset.name;
+    const action = e.target.dataset.action;
+    if(action==='delete'){
+      if(confirm(`Delete pack "${name}"?`)){
+        delete packs[name]; savePacks(packs); refreshPackList(); refreshPackSelect();
+      }
+    } else if(action==='export'){
+      downloadJSON({[name]: packs[name]}, `${name.replace(/\s+/g,'_')}.json`);
+    } else if(action==='play'){
+      currentPack = name; refreshPackSelect();
+      document.querySelector('[data-tab="play"]').click();
+      startRound(true);
+    } else if(action==='edit'){
+      document.querySelector('[data-tab="create"]').click();
+      $('#packName').value = name; workingEntries = structuredClone(packs[name].items); renderThumbs();
+    }
+  }
+
+  // ---------------- Create Tab ----------------
+  $('#addEntry').addEventListener('click', async ()=>{
+    const name = $('#entryName').value.trim();
+    const file = $('#entryFile').files[0];
+    if(!name || !file){ alert('Provide a name and an image.'); return; }
+    const dataUrl = await fileToDataURL(file);
+    workingEntries.push({name, img:dataUrl});
+    $('#entryName').value=''; $('#entryFile').value='';
+    renderThumbs();
+  });
+  $('#clearEntries').addEventListener('click', ()=>{ if(confirm('Clear current entries?')){ workingEntries=[]; renderThumbs(); }});
+  $('#savePack').addEventListener('click', ()=>{
+    const name = $('#packName').value.trim();
+    if(!name){ alert('Give your pack a name.'); return; }
+    if(!workingEntries.length){ alert('Add at least one entry.'); return; }
+    packs[name] = { items: workingEntries };
+    savePacks(packs);
+    workingEntries = [];
+    $('#packName').value='';
+    renderThumbs();
+    currentPack = name; // immediately select and start
+    refreshPackSelect(); refreshPackList();
+    startRound(true);
+    alert('Pack saved! Switched to your new pack.');
+  });
+  function renderThumbs(){
+    const c = $('#thumbs');
+    c.innerHTML = workingEntries.map((e,i)=>`<div><img src="${e.img}" alt="${e.name}"><div class="mini">${i+1}. ${e.name}</div></div>`).join('');
+  }
+
+  // ---------------- Import/Export (All) ----------------
+  $('#exportAll').addEventListener('click', ()=>{
+    if(!Object.keys(packs).length){ alert('No packs to export.'); return; }
+    downloadJSON(packs, 'wtp_packs_export.json');
+  });
+  $('#importBtn').addEventListener('click', async ()=>{
+    const file = $('#importFile').files[0];
+    if(!file){ alert('Choose a JSON file to import.'); return; }
+    try{
+      const text = await file.text();
+      const obj = JSON.parse(text);
+      for(const [k,v] of Object.entries(obj)) packs[k]=v; // overwrite by name
+      savePacks(packs); refreshPackList(); refreshPackSelect();
+      alert('Import complete.');
+    }catch(err){ alert('Invalid JSON file.'); }
+  });
+  function downloadJSON(obj, filename){
+    const blob = new Blob([JSON.stringify(obj)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = filename; a.click(); URL.revokeObjectURL(a.href);
+  }
+  async function fileToDataURL(file){
+    return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); });
+  }
+
+  // ---------------- Play Flow ----------------
+  $('#packSelect').addEventListener('change', e=>{ currentPack = e.target.value; $('#count').textContent = packs[currentPack]?.items.length || 0; startRound(true); });
+  $('#submitGuess').addEventListener('click', checkGuess);
+  $('#guess').addEventListener('keydown', e=>{ if(e.key==='Enter') checkGuess(); });
+  $('#reveal').addEventListener('click', ()=>{
+    if(!currentPack) return;
+    revealed = true; locked = true;
+    drawCurrent(false);
+    $('#status').textContent = `Revealed: ${packs[currentPack].items[currentIndex].name}. Press Next to continue.`;
+  });
+  $('#next').addEventListener('click', ()=> startRound(true));
+  $('#toggleSilhouette').addEventListener('click', ()=>{
+    showSilhouette=!showSilhouette;
+    drawCurrent(showSilhouette);
+    $('#status').textContent= showSilhouette?'Silhouette mode':'Full image';
+  });
+  $('#full').addEventListener('click', ()=>{ if(STAGE.requestFullscreen) STAGE.requestFullscreen(); });
+
+  function startRound(resetInput=false){
+    if(!currentPack || !packs[currentPack] || !packs[currentPack].items.length){
+      CTX.clearRect(0,0,CANVAS.width,CANVAS.height);
+      $('#status').textContent = 'Load or create a pack to begin';
+      return;
+    }
+    currentIndex = Math.floor(Math.random()*packs[currentPack].items.length);
+    showSilhouette = true; revealed = false; locked = false;
+    if(resetInput){ $('#guess').value=''; }
+    drawCurrent(true);
+    $('#count').textContent = packs[currentPack].items.length;
+  }
+
+  async function drawCurrent(silhouette=true){
+    const entry = packs[currentPack].items[currentIndex];
+    const img = await loadImage(entry.img);
+    const pad=20; const W=CANVAS.width, H=CANVAS.height;
+    CTX.clearRect(0,0,W,H);
+    const scale = Math.min((W-2*pad)/img.width, (H-2*pad)/img.height);
+    const dw = Math.round(img.width*scale), dh = Math.round(img.height*scale);
+    const dx = Math.round((W-dw)/2), dy = Math.round((H-dh)/2);
+
+    if(!silhouette){ CTX.drawImage(img, dx, dy, dw, dh); return; }
+
+    // Build silhouette with automatic background detection
+    const tmp = document.createElement('canvas');
+    tmp.width = dw; tmp.height = dh; const tctx = tmp.getContext('2d');
+    tctx.drawImage(img, 0, 0, dw, dh);
+    const id = tctx.getImageData(0,0,dw,dh);
+    const d = id.data;
+
+    const border = sampleBorderStats(d, dw, dh);
+    const useAlpha = border.transparentRatio > 0.5; // PNG/transparent background
+    const bg = border.avg; // {r,g,b}
+    const thresh = 38; // color distance threshold
+
+    for(let i=0;i<d.length;i+=4){
+      const r=d[i], g=d[i+1], b=d[i+2], a=d[i+3];
+      let keep;
+      if(useAlpha){
+        keep = a > 10; // use original alpha
+      } else {
+        // treat near-background or very bright near-white as background
+        const dr=r-bg.r, dg=g-bg.g, db=b-bg.b;
+        const dist = dr*dr + dg*dg + db*db;
+        const luma = 0.2126*r + 0.7152*g + 0.0722*b;
+        keep = !(dist < thresh*thresh || luma > 245);
+      }
+      if(keep){
+        d[i]=5; d[i+1]=10; d[i+2]=22; d[i+3]=255; // dark silhouette color
+      }else{
+        d[i]=0; d[i+1]=0; d[i+2]=0; d[i+3]=0; // transparent
+      }
+    }
+    tctx.putImageData(id,0,0);
+
+    CTX.save();
+    CTX.shadowColor = 'rgba(125,211,252,.35)';
+    CTX.shadowBlur = 24; CTX.shadowOffsetX = 0; CTX.shadowOffsetY = 0;
+    CTX.drawImage(tmp, dx, dy);
+    CTX.restore();
+
+    function sampleBorderStats(pixels, w, h){
+      let sumR=0,sumG=0,sumB=0,count=0,transparent=0;
+      const step = 1;
+      // top & bottom
+      for(let x=0;x<w;x+=step){
+        const iTop = (0*w + x)*4;
+        const iBot = ((h-1)*w + x)*4;
+        [iTop,iBot].forEach(i=>{ const a=pixels[i+3]; if(a<15) transparent++; sumR+=pixels[i]; sumG+=pixels[i+1]; sumB+=pixels[i+2]; count++; });
+      }
+      // left & right
+      for(let y=0;y<h;y+=step){
+        const iLeft = (y*w + 0)*4;
+        const iRight = (y*w + (w-1))*4;
+        [iLeft,iRight].forEach(i=>{ const a=pixels[i+3]; if(a<15) transparent++; sumR+=pixels[i]; sumG+=pixels[i+1]; sumB+=pixels[i+2]; count++; });
+      }
+      return {
+        avg:{ r: Math.round(sumR/count||255), g: Math.round(sumG/count||255), b: Math.round(sumB/count||255) },
+        transparentRatio: count? transparent/count : 0
+      };
+    }
+  }
+
+  function loadImage(src){
+    return new Promise((res,rej)=>{
+      const im = new Image();
+      im.crossOrigin = 'anonymous';
+      im.onload = ()=>res(im);
+      im.onerror = rej;
+      im.src = src;
+    });
+  }
+
+  function checkGuess(){
+    if(!currentPack || locked) return;
+    const entry = packs[currentPack].items[currentIndex];
+    const gRaw = $('#guess').value.trim();
+    if(!gRaw) return;
+    const g = normalize(gRaw);
+    const a = normalize(entry.name);
+    const correct = isMatch(g, a);
+    if(correct){
+      score++; $('#score').textContent = score; $('#status').textContent = 'Correct!';
+      drawCurrent(false);
+      locked = true; // wait for Next
+    } else {
+      $('#status').textContent = 'Not quite — try again!';
+    }
+  }
+
+  function normalize(s){
+    return s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,'').replace(/[^a-z0-9]/g,'');
+  }
+  function isMatch(g, a){
+    if(g===a) return true;
+    if(g.length>=3 && (a.includes(g) || g.includes(a))) return true;
+    return false;
+  }
+
+  // ---------------- Init ----------------
+  function init(){
+    ensureStarterPack();
+    activateTab('play');
+    packs = loadPacks();
+    const names = Object.keys(packs);
+    if(names.length && !currentPack) currentPack = names[0];
+    refreshPackSelect();
+    refreshPackList();
+    startRound(false);
+  }
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>
