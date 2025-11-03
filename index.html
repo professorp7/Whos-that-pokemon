@@ -40,7 +40,6 @@
   .btn:active{transform:translateY(1px)}
   .btn.ghost{background:transparent;color:var(--muted)}
   .btn.acc{background:linear-gradient(90deg,var(--accent),var(--accent-2));color:#06121e;border:none}
-  .btn.sm{padding:6px 8px;font-size:12px;border-radius:8px}
   .pill{padding:6px 10px;border-radius:999px;background:var(--glass);border:1px solid var(--line);font-size:12px}
 
   .kvs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -59,12 +58,19 @@
     padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--glass);color:var(--text)
   }
   .uploader label{font-size:12px;color:var(--muted)}
+
   .thumbs{display:grid;grid-template-columns:repeat(auto-fill, minmax(120px,1fr));gap:8px;margin-top:8px}
-  .thumb{position:relative;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:12px;padding:6px}
+  .thumb{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:12px;padding:8px;display:flex;flex-direction:column;align-items:stretch}
   .thumb img{width:100%;height:90px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
   .thumb .mini{margin-top:6px}
-  .thumb-actions{position:absolute;top:6px;right:6px;display:flex;gap:6px}
-  .thumb-actions .btn{background:rgba(15,24,64,.8);border:1px solid var(--line)}
+  .thumb .remove-btn{
+    margin-top:6px;width:100%;
+    border:1px solid var(--line);
+    background:rgba(239,68,68,.12);
+    color:#ffb4b4;font-weight:700;padding:6px 8px;
+    border-radius:8px;cursor:pointer;
+  }
+  .thumb .remove-btn:active{ transform:translateY(1px); }
 
   @media (max-width:1020px){ .grid{grid-template-columns:1fr} }
 </style>
@@ -142,7 +148,7 @@
         <h2>Tips</h2>
         <p class="muted">Upload images from your device for the cleanest silhouettes (avoids cross-origin issues). Each entry stores the image as a data URL inside the pack.</p>
         <p class="muted">You can export packs and share JSON files. Friends can import them in <em>Manage Packs</em>.</p>
-        <p class="muted">To remove an entry while editing, press the ✕ on its thumbnail, then Save Pack.</p>
+        <p class="muted">Remove entries using the button under each thumbnail, then save the pack.</p>
       </aside>
     </section>
 
@@ -198,7 +204,7 @@
     x.fillStyle = 'white';
     x.beginPath(); x.arc(240,150,90,0,Math.PI*2); x.fill();
     x.fillRect(220,240,40,70);
-    return c.toDataURL('image/png'); // transparent bg + white shape
+    return c.toDataURL('image/png');
   }
   function ensureStarterPack(){
     const existing = loadPacks();
@@ -208,7 +214,7 @@
     savePacks(demo);
   }
 
-  // ---------------- Tabs (accessible + resilient) ----------------
+  // ---------------- Tabs ----------------
   function activateTab(id){
     $$('.tab').forEach(b=>{
       const on = b.dataset.tab === id;
@@ -234,7 +240,7 @@
   let score = 0;
   let revealed = false;
   let locked = false;
-  let workingEntries = []; // for create tab
+  let workingEntries = []; // editable copy for Create tab
 
   function refreshPackSelect(){
     const sel = $('#packSelect');
@@ -309,19 +315,16 @@
     renderThumbs();
   });
 
-  // NEW: Per-entry removal while editing
+  // Remove button under each thumb
   $('#thumbs').addEventListener('click', (e)=>{
-    const btn = e.target.closest('button[data-action]');
+    const btn = e.target.closest('button.remove-btn');
     if(!btn) return;
     const idx = Number(btn.dataset.index);
     if(Number.isNaN(idx)) return;
-
-    if(btn.dataset.action === 'remove'){
-      const victim = workingEntries[idx];
-      if(confirm(`Remove "${victim.name}" from this pack?`)){
-        workingEntries.splice(idx, 1);
-        renderThumbs();
-      }
+    const victim = workingEntries[idx];
+    if(confirm(`Remove "${victim.name}" from this pack?`)){
+      workingEntries.splice(idx, 1);
+      renderThumbs();
     }
   });
 
@@ -338,7 +341,7 @@
     workingEntries = [];
     $('#packName').value='';
     renderThumbs();
-    currentPack = name; // immediately select and start
+    currentPack = name;
     refreshPackSelect(); refreshPackList();
     startRound(true);
     alert('Pack saved! Switched to your new pack.');
@@ -348,11 +351,9 @@
     const c = $('#thumbs');
     c.innerHTML = workingEntries.map((e,i)=>`
       <div class="thumb" data-index="${i}">
-        <div class="thumb-actions">
-          <button class="btn sm" data-action="remove" data-index="${i}" title="Remove">✕</button>
-        </div>
         <img src="${e.img}" alt="${e.name}">
         <div class="mini">${i+1}. ${e.name}</div>
+        <button class="remove-btn" data-index="${i}" aria-label="Remove ${e.name}">Remove</button>
       </div>
     `).join('');
   }
@@ -433,25 +434,24 @@
 
     const border = sampleBorderStats(d, dw, dh);
     const useAlpha = border.transparentRatio > 0.5; // PNG/transparent background
-    const bg = border.avg; // {r,g,b}
-    const thresh = 38; // color distance threshold
+    const bg = border.avg;
+    const thresh = 38;
 
     for(let i=0;i<d.length;i+=4){
       const r=d[i], g=d[i+1], b=d[i+2], a=d[i+3];
       let keep;
       if(useAlpha){
-        keep = a > 10; // use original alpha
+        keep = a > 10;
       } else {
-        // treat near-background or very bright near-white as background
         const dr=r-bg.r, dg=g-bg.g, db=b-bg.b;
         const dist = dr*dr + dg*dg + db*db;
         const luma = 0.2126*r + 0.7152*g + 0.0722*b;
         keep = !(dist < thresh*thresh || luma > 245);
       }
       if(keep){
-        d[i]=5; d[i+1]=10; d[i+2]=22; d[i+3]=255; // dark silhouette color
+        d[i]=5; d[i+1]=10; d[i+2]=22; d[i+3]=255;
       }else{
-        d[i]=0; d[i+1]=0; d[i+2]=0; d[i+3]=0; // transparent
+        d[i]=0; d[i+1]=0; d[i+2]=0; d[i+3]=0;
       }
     }
     tctx.putImageData(id,0,0);
@@ -465,13 +465,11 @@
     function sampleBorderStats(pixels, w, h){
       let sumR=0,sumG=0,sumB=0,count=0,transparent=0;
       const step = 1;
-      // top & bottom
       for(let x=0;x<w;x+=step){
         const iTop = (0*w + x)*4;
         const iBot = ((h-1)*w + x)*4;
         [iTop,iBot].forEach(i=>{ const a=pixels[i+3]; if(a<15) transparent++; sumR+=pixels[i]; sumG+=pixels[i+1]; sumB+=pixels[i+2]; count++; });
       }
-      // left & right
       for(let y=0;y<h;y+=step){
         const iLeft = (y*w + 0)*4;
         const iRight = (y*w + (w-1))*4;
@@ -505,7 +503,7 @@
     if(correct){
       score++; $('#score').textContent = score; $('#status').textContent = 'Correct!';
       drawCurrent(false);
-      locked = true; // wait for Next
+      locked = true;
     } else {
       $('#status').textContent = 'Not quite — try again!';
     }
