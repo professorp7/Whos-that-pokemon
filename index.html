@@ -40,6 +40,7 @@
   .btn:active{transform:translateY(1px)}
   .btn.ghost{background:transparent;color:var(--muted)}
   .btn.acc{background:linear-gradient(90deg,var(--accent),var(--accent-2));color:#06121e;border:none}
+  .btn.sm{padding:6px 8px;font-size:12px;border-radius:8px}
   .pill{padding:6px 10px;border-radius:999px;background:var(--glass);border:1px solid var(--line);font-size:12px}
 
   .kvs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -58,8 +59,12 @@
     padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--glass);color:var(--text)
   }
   .uploader label{font-size:12px;color:var(--muted)}
-  .thumbs{display:grid;grid-template-columns:repeat(auto-fill, minmax(90px,1fr));gap:8px;margin-top:8px}
-  .thumbs img{width:100%;height:70px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+  .thumbs{display:grid;grid-template-columns:repeat(auto-fill, minmax(120px,1fr));gap:8px;margin-top:8px}
+  .thumb{position:relative;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:12px;padding:6px}
+  .thumb img{width:100%;height:90px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+  .thumb .mini{margin-top:6px}
+  .thumb-actions{position:absolute;top:6px;right:6px;display:flex;gap:6px}
+  .thumb-actions .btn{background:rgba(15,24,64,.8);border:1px solid var(--line)}
 
   @media (max-width:1020px){ .grid{grid-template-columns:1fr} }
 </style>
@@ -137,6 +142,7 @@
         <h2>Tips</h2>
         <p class="muted">Upload images from your device for the cleanest silhouettes (avoids cross-origin issues). Each entry stores the image as a data URL inside the pack.</p>
         <p class="muted">You can export packs and share JSON files. Friends can import them in <em>Manage Packs</em>.</p>
+        <p class="muted">To remove an entry while editing, press the ✕ on its thumbnail, then Save Pack.</p>
       </aside>
     </section>
 
@@ -285,7 +291,10 @@
       startRound(true);
     } else if(action==='edit'){
       document.querySelector('[data-tab="create"]').click();
-      $('#packName').value = name; workingEntries = structuredClone(packs[name].items); renderThumbs();
+      $('#packName').value = name;
+      // Clone items into working list for safe editing
+      workingEntries = structuredClone(packs[name].items);
+      renderThumbs();
     }
   }
 
@@ -299,7 +308,27 @@
     $('#entryName').value=''; $('#entryFile').value='';
     renderThumbs();
   });
-  $('#clearEntries').addEventListener('click', ()=>{ if(confirm('Clear current entries?')){ workingEntries=[]; renderThumbs(); }});
+
+  // NEW: Per-entry removal while editing
+  $('#thumbs').addEventListener('click', (e)=>{
+    const btn = e.target.closest('button[data-action]');
+    if(!btn) return;
+    const idx = Number(btn.dataset.index);
+    if(Number.isNaN(idx)) return;
+
+    if(btn.dataset.action === 'remove'){
+      const victim = workingEntries[idx];
+      if(confirm(`Remove "${victim.name}" from this pack?`)){
+        workingEntries.splice(idx, 1);
+        renderThumbs();
+      }
+    }
+  });
+
+  $('#clearEntries').addEventListener('click', ()=>{
+    if(confirm('Clear current entries?')){ workingEntries=[]; renderThumbs(); }
+  });
+
   $('#savePack').addEventListener('click', ()=>{
     const name = $('#packName').value.trim();
     if(!name){ alert('Give your pack a name.'); return; }
@@ -314,9 +343,18 @@
     startRound(true);
     alert('Pack saved! Switched to your new pack.');
   });
+
   function renderThumbs(){
     const c = $('#thumbs');
-    c.innerHTML = workingEntries.map((e,i)=>`<div><img src="${e.img}" alt="${e.name}"><div class="mini">${i+1}. ${e.name}</div></div>`).join('');
+    c.innerHTML = workingEntries.map((e,i)=>`
+      <div class="thumb" data-index="${i}">
+        <div class="thumb-actions">
+          <button class="btn sm" data-action="remove" data-index="${i}" title="Remove">✕</button>
+        </div>
+        <img src="${e.img}" alt="${e.name}">
+        <div class="mini">${i+1}. ${e.name}</div>
+      </div>
+    `).join('');
   }
 
   // ---------------- Import/Export (All) ----------------
