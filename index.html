@@ -118,6 +118,7 @@
           <label>Display</label>
           <div class="row">
             <button class="btn" id="toggleSilhouette">Toggle silhouette</button>
+            <button class="btn" id="daily">Daily</button>
             <button class="btn ghost" id="full">Fullscreen</button>
           </div>
         </div>
@@ -175,11 +176,12 @@
   const $ = sel => document.querySelector(sel);
   const $$ = sel => Array.from(document.querySelectorAll(sel));
   const CANVAS = $('#canvas');
-  const CTX = CANVAS.getContext('2d');
+  const CTX = CANVAS.getContext('2d', { willReadFrequently:true });
   const STAGE = $('#stage');
 
-  // ---------------- Storage (robust) ----------------
+  /* ---------------- Storage (robust) ---------------- */
   const storeKey = 'wtp_packs_v1';
+  const settingsKey = 'wtp_settings';
   const loadPacks = () => {
     try{
       const raw = localStorage.getItem(storeKey);
@@ -197,7 +199,18 @@
     catch(e){ console.warn('Failed to save packs', e); }
   };
 
-  // --- Starter utilities ---
+  const settings = (()=> {
+    try { return {...{daily:false}, ...JSON.parse(localStorage.getItem(settingsKey) || '{}')}; }
+    catch { return {daily:false}; }
+  })();
+  function persistSettings(){ localStorage.setItem(settingsKey, JSON.stringify(settings)); }
+
+  // per-pack score helpers
+  const scoreKey = (name)=> `wtp_score:${name}`;
+  const loadScore = (name)=> Number(localStorage.getItem(scoreKey(name))||0);
+  const saveScore = (name, val)=> localStorage.setItem(scoreKey(name), String(val));
+
+  /* --- Starter utilities --- */
   function generateSampleImage(){
     const c = document.createElement('canvas'); c.width=480; c.height=360; const x=c.getContext('2d');
     x.clearRect(0,0,c.width,c.height);
@@ -214,7 +227,12 @@
     savePacks(demo);
   }
 
-  // ---------------- Tabs ----------------
+  /* ---------------- RNG / Shuffle (Daily mode) ---------------- */
+  function mulberry32(seed){ return function(){ let t = seed += 0x6D2B79F5; t = Math.imul(t ^ t>>>15, t|1); t ^= t + Math.imul(t ^ t>>>7, t|61); return ((t ^ t>>>14)>>>0) / 4294967296; } }
+  function seededShuffle(arr, rand=Math.random){ const a=arr.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(rand()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+  function dateSeed(){ const now=new Date(); const y=now.getFullYear(), m=now.getMonth()+1, d=now.getDate(); return (y*10000 + m*100 + d) >>> 0; }
+
+  /* ---------------- Tabs ---------------- */
   function activateTab(id){
     $$('.tab').forEach(b=>{
       const on = b.dataset.tab === id;
@@ -232,7 +250,7 @@
     activateTab(btn.dataset.tab);
   });
 
-  // ---------------- State ----------------
+  /* ---------------- State ---------------- */
   let packs = {};
   let currentPack = null;
   let currentIndex = -1;
@@ -241,6 +259,22 @@
   let revealed = false;
   let locked = false;
   let workingEntries = []; // editable copy for Create tab
+
+  // order handling (no-repeat + daily option)
+  let playOrder = [];
+  let orderPos = 0;
+  function buildOrder(){
+    if(!currentPack || !packs[currentPack]) { playOrder=[]; orderPos=0; return; }
+    const n = packs[currentPack].items.length;
+    const base = [...Array(n).keys()];
+    if(settings.daily){
+      const rng = mulberry32(dateSeed());
+      playOrder = seededShuffle(base, rng);
+    } else {
+      playOrder = seededShuffle(base);
+    }
+    orderPos = 0;
+  }
 
   function refreshPackSelect(){
     const sel = $('#packSelect');
@@ -251,6 +285,8 @@
     if(names.length){
       if(!currentPack || !packs[currentPack]) currentPack = names[0];
       sel.value = currentPack;
+      score = loadScore(currentPack);
+      $('#score').textContent = score;
     } else {
       currentPack = null;
     }
@@ -287,12 +323,12 @@
     const action = e.target.dataset.action;
     if(action==='delete'){
       if(confirm(`Delete pack "${name}"?`)){
-        delete packs[name]; savePacks(packs); refreshPackList(); refreshPackSelect();
+        delete packs[name]; savePacks(packs); refreshPackList(); refreshPackSelect(); buildOrder(); startRound(true);
       }
     } else if(action==='export'){
       downloadJSON({[name]: packs[name]}, `${name.replace(/\s+/g,'_')}.json`);
     } else if(action==='play'){
-      currentPack = name; refreshPackSelect();
+      currentPack = name; refreshPackSelect(); buildOrder();
       document.querySelector('[data-tab="play"]').click();
       startRound(true);
     } else if(action==='edit'){
@@ -304,12 +340,13 @@
     }
   }
 
-  // ---------------- Create Tab ----------------
+  /* ---------------- Create Tab ---------------- */
   $('#addEntry').addEventListener('click', async ()=>{
     const name = $('#entryName').value.trim();
     const file = $('#entryFile').files[0];
     if(!name || !file){ alert('Provide a name and an image.'); return; }
     const dataUrl = await fileToDataURL(file);
+    // You can also add aliases later: {name, img, aliases:['alt1','alt2']}
     workingEntries.push({name, img:dataUrl});
     $('#entryName').value=''; $('#entryFile').value='';
     renderThumbs();
@@ -336,6 +373,11 @@
     const name = $('#packName').value.trim();
     if(!name){ alert('Give your pack a name.'); return; }
     if(!workingEntries.length){ alert('Add at least one entry.'); return; }
+    // Optional: warn duplicate names
+    const normalized = new Set(workingEntries.map(e=>normalize(e.name)));
+    if(normalized.size !== workingEntries.length){
+      if(!confirm('Duplicate names detected. Save anyway?')) return;
+    }
     packs[name] = { items: workingEntries };
     savePacks(packs);
     workingEntries = [];
@@ -343,7 +385,7 @@
     renderThumbs();
     currentPack = name;
     refreshPackSelect(); refreshPackList();
-    startRound(true);
+    buildOrder(); startRound(true);
     alert('Pack saved! Switched to your new pack.');
   });
 
@@ -358,7 +400,7 @@
     `).join('');
   }
 
-  // ---------------- Import/Export (All) ----------------
+  /* ---------------- Import/Export (All) ---------------- */
   $('#exportAll').addEventListener('click', ()=>{
     if(!Object.keys(packs).length){ alert('No packs to export.'); return; }
     downloadJSON(packs, 'wtp_packs_export.json');
@@ -370,7 +412,7 @@
       const text = await file.text();
       const obj = JSON.parse(text);
       for(const [k,v] of Object.entries(obj)) packs[k]=v; // overwrite by name
-      savePacks(packs); refreshPackList(); refreshPackSelect();
+      savePacks(packs); refreshPackList(); refreshPackSelect(); buildOrder(); startRound(true);
       alert('Import complete.');
     }catch(err){ alert('Invalid JSON file.'); }
   });
@@ -383,8 +425,13 @@
     return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); });
   }
 
-  // ---------------- Play Flow ----------------
-  $('#packSelect').addEventListener('change', e=>{ currentPack = e.target.value; $('#count').textContent = packs[currentPack]?.items.length || 0; startRound(true); });
+  /* ---------------- Play Flow ---------------- */
+  $('#packSelect').addEventListener('change', e=>{
+    currentPack = e.target.value;
+    $('#count').textContent = packs[currentPack]?.items.length || 0;
+    score = loadScore(currentPack); $('#score').textContent = score;
+    buildOrder(); startRound(true);
+  });
   $('#submitGuess').addEventListener('click', checkGuess);
   $('#guess').addEventListener('keydown', e=>{ if(e.key==='Enter') checkGuess(); });
   $('#reveal').addEventListener('click', ()=>{
@@ -401,33 +448,62 @@
   });
   $('#full').addEventListener('click', ()=>{ if(STAGE.requestFullscreen) STAGE.requestFullscreen(); });
 
+  // Daily toggle
+  $('#daily').addEventListener('click', ()=>{
+    settings.daily = !settings.daily; persistSettings();
+    $('#daily').textContent = settings.daily ? 'Daily ✓' : 'Daily';
+    buildOrder(); startRound(true);
+  });
+  (function initDailyLabel(){ $('#daily').textContent = settings.daily ? 'Daily ✓' : 'Daily'; })();
+
   function startRound(resetInput=false){
     if(!currentPack || !packs[currentPack] || !packs[currentPack].items.length){
       CTX.clearRect(0,0,CANVAS.width,CANVAS.height);
       $('#status').textContent = 'Load or create a pack to begin';
       return;
     }
-    currentIndex = Math.floor(Math.random()*packs[currentPack].items.length);
+    if(orderPos >= playOrder.length) buildOrder();
+    currentIndex = playOrder[orderPos++];
     showSilhouette = true; revealed = false; locked = false;
     if(resetInput){ $('#guess').value=''; }
     drawCurrent(true);
     $('#count').textContent = packs[currentPack].items.length;
   }
 
+  /* ---------------- Canvas: crisp resize ---------------- */
+  const RO = new ResizeObserver(()=>fitCanvas());
+  RO.observe(STAGE);
+  function fitCanvas(){
+    const r = STAGE.getBoundingClientRect();
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const W = Math.floor(r.width * dpr);
+    const H = Math.floor(r.height * dpr); // respects CSS height (420px)
+    if (CANVAS.width !== W || CANVAS.height !== H){
+      CANVAS.width = W; CANVAS.height = H;
+    }
+    CANVAS.style.width = Math.floor(W/dpr)+'px';
+    CANVAS.style.height = Math.floor(H/dpr)+'px';
+    if(currentPack && currentIndex>=0) drawCurrent(showSilhouette);
+  }
+
+  /* ---------------- Drawing ---------------- */
   async function drawCurrent(silhouette=true){
     const entry = packs[currentPack].items[currentIndex];
     const img = await loadImage(entry.img);
     const pad=20; const W=CANVAS.width, H=CANVAS.height;
     CTX.clearRect(0,0,W,H);
     const scale = Math.min((W-2*pad)/img.width, (H-2*pad)/img.height);
-    const dw = Math.round(img.width*scale), dh = Math.round(img.height*scale);
+    const dw = Math.max(1, Math.round(img.width*scale)), dh = Math.max(1, Math.round(img.height*scale));
     const dx = Math.round((W-dw)/2), dy = Math.round((H-dh)/2);
 
-    if(!silhouette){ CTX.drawImage(img, dx, dy, dw, dh); return; }
+    if(!silhouette){
+      CTX.drawImage(img, dx, dy, dw, dh);
+      return;
+    }
 
     // Build silhouette with automatic background detection
     const tmp = document.createElement('canvas');
-    tmp.width = dw; tmp.height = dh; const tctx = tmp.getContext('2d');
+    tmp.width = dw; tmp.height = dh; const tctx = tmp.getContext('2d', { willReadFrequently:true });
     tctx.drawImage(img, 0, 0, dw, dh);
     const id = tctx.getImageData(0,0,dw,dh);
     const d = id.data;
@@ -449,17 +525,31 @@
         keep = !(dist < thresh*thresh || luma > 245);
       }
       if(keep){
-        d[i]=5; d[i+1]=10; d[i+2]=22; d[i+3]=255;
+        d[i]=5; d[i+1]=10; d[i+2]=22; d[i+3]=255; // dark fill
       }else{
-        d[i]=0; d[i+1]=0; d[i+2]=0; d[i+3]=0;
+        d[i]=0; d[i+1]=0; d[i+2]=0; d[i+3]=0;     // transparent
       }
     }
     tctx.putImageData(id,0,0);
 
+    // Glow
     CTX.save();
     CTX.shadowColor = 'rgba(125,211,252,.35)';
     CTX.shadowBlur = 24; CTX.shadowOffsetX = 0; CTX.shadowOffsetY = 0;
     CTX.drawImage(tmp, dx, dy);
+    CTX.restore();
+
+    // Subtle blur for anti-aliasing
+    CTX.filter = 'blur(0.8px)';
+    CTX.drawImage(tmp, dx, dy);
+    CTX.filter = 'none';
+
+    // Simple frame outline to pop the subject
+    CTX.save();
+    CTX.globalCompositeOperation = 'source-over';
+    CTX.lineWidth = 2;
+    CTX.strokeStyle = 'rgba(125,211,252,0.35)';
+    CTX.strokeRect(dx, dy, tmp.width, tmp.height);
     CTX.restore();
 
     function sampleBorderStats(pixels, w, h){
@@ -492,16 +582,18 @@
     });
   }
 
+  /* ---------------- Guessing (aliases & forgiving) ---------------- */
   function checkGuess(){
     if(!currentPack || locked) return;
     const entry = packs[currentPack].items[currentIndex];
     const gRaw = $('#guess').value.trim();
     if(!gRaw) return;
     const g = normalize(gRaw);
-    const a = normalize(entry.name);
-    const correct = isMatch(g, a);
+    const candidates = [entry.name, ...(entry.aliases||[])].map(normalize);
+    const correct = candidates.some(a => isMatch(g, a));
     if(correct){
-      score++; $('#score').textContent = score; $('#status').textContent = 'Correct!';
+      score++; $('#score').textContent = score; saveScore(currentPack, score);
+      $('#status').textContent = 'Correct!';
       drawCurrent(false);
       locked = true;
     } else {
@@ -518,7 +610,17 @@
     return false;
   }
 
-  // ---------------- Init ----------------
+  /* ---------------- Pro Keybinds ---------------- */
+  document.addEventListener('keydown', (e)=>{
+    if(document.activeElement === $('#guess')) return; // allow typing
+    const k = e.key.toLowerCase();
+    if(k==='r'){ $('#reveal').click(); }
+    else if(k==='n'){ $('#next').click(); }
+    else if(k==='s'){ $('#toggleSilhouette').click(); }
+    else if(k==='f'){ $('#full').click(); }
+  });
+
+  /* ---------------- Init ---------------- */
   function init(){
     ensureStarterPack();
     activateTab('play');
@@ -527,6 +629,8 @@
     if(names.length && !currentPack) currentPack = names[0];
     refreshPackSelect();
     refreshPackList();
+    buildOrder();
+    fitCanvas();
     startRound(false);
   }
   if(document.readyState === 'loading'){
